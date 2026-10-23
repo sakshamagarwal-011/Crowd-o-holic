@@ -1,0 +1,60 @@
+# =========================
+# Environment / Secrets
+# =========================
+
+.env
+.env.*
+!.env.example
+
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# =========================
+# Python build artifacts
+# =========================
+
+build/
+dist/
+*.egg-info/
+
+# =========================
+# Node / Frontend
+# =========================
+
+node_modules/
+frontend/dist/
+frontend/build/
+
+# =========================
+# Logs
+# =========================
+
+*.log
+
+# =========================
+# IDE / Editor
+# =========================
+
+.vscode/
+.idea/
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db

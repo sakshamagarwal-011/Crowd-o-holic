@@ -1,0 +1,37 @@
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/env/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/.python-version
+
+# Environment files
+**/.env
+**/.env.*
+!**/.env.example
+
+# Node / frontend
+**/node_modules/
+**/dist/
+**/build/
+**/.vite/
+**/*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Lock files are usually committed; keep these if desired
+# package-lock.json, uv.lock, etc. are intentionally not ignored.
+
+# Presentation build cache & presentations
+.codex-ppt-build/
+*.pptx
+output/
