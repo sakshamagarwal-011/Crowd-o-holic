@@ -385,6 +385,15 @@ function EdgeLine({ edge, density, status, isDisabled, isRestricted, isSelected,
           </text>
         </g>
       )}
+      {/* closed door / barrier tag */}
+      {(isDisabled || status === 'closed' || status === 'emergency-closed') && !isRestricted && (
+        <g transform={`translate(${mx},${my - 10})`}>
+          <rect x="-32" y="-7" width="64" height="14" rx="3" fill="#dc2626" opacity="0.95" />
+          <text textAnchor="middle" y="3.5" fill="#ffffff" fontSize="7.5" fontWeight="bold">
+            CLOSED
+          </text>
+        </g>
+      )}
     </g>
   );
 }

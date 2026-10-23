@@ -38,6 +38,18 @@ function Dashboard() {
   const [showCameras, setShowCameras] = useState(false);
   const [showLayers, setShowLayers] = useState(false);
 
+  const toggleCameras = () => {
+    setShowCameras((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => {
+          document.getElementById('camera-context-section')?.scrollIntoView({ behavior: 'smooth' });
+        }, 80);
+      }
+      return next;
+    });
+  };
+
 
   useEffect(() => {
     if (snapshot?.simulation.status === 'running') setMode('monitor');
@@ -105,7 +117,7 @@ function Dashboard() {
                     {mainView === 'heatmap' ? 'ACTIVE' : 'VIEW'}
                   </span>
                 </button>
-                <button type="button" className="tool-row" onClick={() => setShowCameras((v) => !v)}>
+                <button type="button" className="tool-row" onClick={toggleCameras}>
                   <span className="tool-row__label"><Video size={14} /> Camera context</span>
                   {showCameras ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
@@ -201,13 +213,17 @@ function Dashboard() {
 
           <div className="monitor-bottom">
             <div className="monitor-bottom__timeline min-w-0"><Timeline /></div>
-            <button type="button" className={`camera-toggle ${showCameras ? 'camera-toggle--active' : ''}`} onClick={() => setShowCameras((v) => !v)} aria-expanded={showCameras}>
+            <button type="button" className={`camera-toggle ${showCameras ? 'camera-toggle--active' : ''}`} onClick={toggleCameras} aria-expanded={showCameras}>
               <span className="tool-row__label"><Video size={14} /> Camera context</span>
               {showCameras ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
           </div>
 
-          {showCameras && <div className="camera-drawer"><CameraWall /></div>}
+          {showCameras && (
+            <div id="camera-context-section" className="camera-drawer">
+              <CameraWall />
+            </div>
+          )}
         </main>
 
         <aside className="dashboard-rail dashboard-rail--right overflow-y-auto">

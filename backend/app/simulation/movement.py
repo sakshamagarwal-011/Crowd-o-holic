@@ -47,12 +47,16 @@ def spawn_agents(
         # Check if the entry gate's outgoing edge or the gate itself is restricted or closed
         throttle_mult = 1.0
         gate_node = grp.entry_gate_id
-        for neighbor, eid in graph.neighbors(gate_node):
-            if eid in disabled_edges:
-                throttle_mult = 0.0
-                break
-            if eid in restricted_edges:
-                throttle_mult = min(throttle_mult, max(0.05, restricted_edges[eid]))
+        if gate_node in disabled_edges:
+            throttle_mult = 0.0
+
+        for eid, e in graph.edges.items():
+            if e.from_node == gate_node:
+                if eid in disabled_edges or e.disabled or e.status in ("closed", "emergency-closed"):
+                    throttle_mult = 0.0
+                    break
+                if eid in restricted_edges:
+                    throttle_mult = min(throttle_mult, max(0.05, restricted_edges[eid]))
 
         if throttle_mult <= 0.0:
             continue
@@ -137,6 +141,44 @@ def _spawn_one(
         speed=22.0 + rng.random() * 12.0,
         destination_node_id=dest,
     )
+
+
+def seed_initial_crowd(
+    groups: list[CrowdGroup],
+    graph: VenueGraph,
+    next_agent_id: list[int],
+    rng: random.Random,
+    path_cache: dict[tuple[str, str], list[str] | None],
+    target_count: int = 500,
+    restricted_edges: dict[str, float] | None = None,
+    disabled_edges: set[str] | None = None,
+) -> list[SimAgent]:
+    """Pre-seed realistic crowd distribution so venue reflects active rush at simulation start."""
+    seeded: list[SimAgent] = []
+    if not groups:
+        return seeded
+
+    total_size = sum(g.total_size for g in groups)
+    if total_size <= 0:
+        return seeded
+
+    for grp in groups:
+        grp_share = max(10, int(target_count * (grp.total_size / total_size)))
+        for _ in range(grp_share):
+            agent = _spawn_one(grp, graph, next_agent_id, rng, path_cache, restricted_edges, disabled_edges)
+            if agent:
+                # Distribute progress across the edge so they don't stack up at gate threshold
+                agent.progress = rng.random() * 0.95
+                from_n = graph.get_node(agent.from_node_id)
+                to_n = graph.get_node(agent.to_node_id)
+                if from_n and to_n:
+                    agent.x = from_n.x + (to_n.x - from_n.x) * agent.progress
+                    agent.y = from_n.y + (to_n.y - from_n.y) * agent.progress
+                seeded.append(agent)
+                grp.spawned += 1
+                grp.active += 1
+
+    return seeded
 
 
 def move_agents(
@@ -333,7 +375,7 @@ def update_edge_metrics(
         e = graph.get_edge(edge_id)
         if e is None:
             continue
-        cap = max(e.capacity * 0.85, 30.0)
+        cap = max(e.capacity * 0.35, 20.0)
         offset = offsets.get(e.id, 0.0)
         e.density = min(1.0, (count / cap) + offset)
         e.flow = round(min(count * 2.0, e.capacity * 1.5), 1)

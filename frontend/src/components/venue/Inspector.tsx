@@ -30,13 +30,72 @@ export function Inspector() {
 }
 
 function NodeInspector({ nodeId }: { nodeId: string }) {
-  const { snapshot, liveAgents, scenario } = useSimulation();
+  const { snapshot, liveAgents, scenario, intervene, activeRestrictions } = useSimulation();
+  const [loading, setLoading] = useState(false);
   const node = NODE_MAP[nodeId];
   if (!node) return null;
   const color = nodeKindColor(node.kind);
-  const agentsHere = liveAgents.filter((a) => a.fromNodeId === nodeId).length;
+  const agentsHere = liveAgents.filter((a) => a.fromNodeId === nodeId || a.toNodeId === nodeId).length;
   const bn = snapshot?.safety.bottlenecks.find((b) => b.edgeId && EDGE_MAP[b.edgeId]?.to === nodeId);
   const occupancy = node.capacity ? Math.min(1, agentsHere / node.capacity) : 0;
+
+  // Check if connected edges are closed or restricted
+  const connectedEdges = Object.values(EDGE_MAP).filter((e) => e.from === nodeId || e.to === nodeId);
+  const isAnyDisabled = connectedEdges.some((e) => snapshot?.routing.disabledEdges.includes(e.id));
+  const isAnyRestricted = connectedEdges.some((e) => activeRestrictions.includes(e.id));
+
+  async function handleCloseDoor() {
+    setLoading(true);
+    try {
+      await intervene({
+        action: 'close',
+        nodeId,
+        reason: `Close Door / Gate at ${node?.label}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReopenDoor() {
+    setLoading(true);
+    try {
+      await intervene({
+        action: 'reopen',
+        nodeId,
+        reason: `Reopen Door / Gate at ${node?.label}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleThrottleGate() {
+    setLoading(true);
+    try {
+      await intervene({
+        action: 'restrict',
+        nodeId,
+        reason: `Throttle / Meter Gate ${node?.label}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDivertGate() {
+    setLoading(true);
+    try {
+      await intervene({
+        action: 'divert',
+        nodeId,
+        targetNodeId: nodeId.includes('e') ? 'exit-se' : 'exit-n',
+        reason: `Divert crowd away from ${node?.label}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="p-3 space-y-2.5">
@@ -70,6 +129,72 @@ function NodeInspector({ nodeId }: { nodeId: string }) {
           {bn.timeToCriticalMin != null && <Info label="Time to Critical" value={formatCountdown(bn.timeToCriticalMin)} />}
         </div>
       )}
+
+      {/* Operator Door & Gate Controls */}
+      <div className="pt-2 border-t border-[#2b3245] space-y-2">
+        <div className="text-[10px] font-bold uppercase text-slate-300 flex items-center justify-between">
+          <span>Door & Gate Controls</span>
+          {isAnyDisabled ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">
+              DOOR CLOSED
+            </span>
+          ) : isAnyRestricted ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+              THROTTLED
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+              OPEN
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          {isAnyDisabled ? (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleReopenDoor}
+              className="col-span-2 px-2.5 py-1.5 rounded text-[11px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              {loading ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+              <span>REOPEN DOOR / GATE</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleCloseDoor}
+              className="px-2.5 py-1.5 rounded text-[10px] font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 flex items-center justify-center gap-1 transition-colors cursor-pointer"
+            >
+              {loading ? <Loader2 size={11} className="animate-spin" /> : <Ban size={11} />}
+              <span>CLOSE DOOR</span>
+            </button>
+          )}
+
+          {!isAnyDisabled && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleThrottleGate}
+              className="px-2.5 py-1.5 rounded text-[10px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center justify-center gap-1 transition-colors cursor-pointer"
+            >
+              {loading ? <Loader2 size={11} className="animate-spin" /> : <ShieldAlert size={11} />}
+              <span>THROTTLE 50%</span>
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          disabled={loading}
+          onClick={handleDivertGate}
+          className="w-full px-2.5 py-1.5 rounded text-[10px] font-bold bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/40 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+        >
+          {loading ? <Loader2 size={11} className="animate-spin" /> : <Route size={11} />}
+          <span>DIVERT CROWD TO RELIEF EXIT</span>
+        </button>
+      </div>
     </div>
   );
 }

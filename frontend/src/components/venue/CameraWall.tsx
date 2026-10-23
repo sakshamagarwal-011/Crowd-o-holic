@@ -15,8 +15,24 @@ interface Feed {
 // repository stays lightweight; the attribution links are shown in the UI.
 const FEEDS: Feed[] = [
   {
+    id: 'main-hall',
+    name: 'MAIN HALL LIVE (CCTV-01)',
+    location: 'MAIN CONCOURSE HALL',
+    source: 'WhatsApp Video 2026-10-23 at 11.20.10 PM.mp4',
+    url: '/main-hall-camera.mp4',
+    license: 'Live CCTV Stream',
+  },
+  {
+    id: 'whatsapp-video',
+    name: 'EAST GATE ENTRY (CCTV-02)',
+    location: 'EAST GATE CORRIDOR',
+    source: 'WhatsApp Video 2026-10-23 at 11.20.10 PM.mp4',
+    url: '/WhatsApp%20Video%202026-10-23%20at%2011.20.10%20PM.mp4',
+    license: 'Venue Operator Footage',
+  },
+  {
     id: 'cctv',
-    name: 'CCTV OVERVIEW',
+    name: 'CCTV OVERVIEW (CCTV-03)',
     location: 'REMOTE CAMERA DEMO',
     source: 'Wikimedia Commons',
     url: 'https://upload.wikimedia.org/wikipedia/commons/b/b4/Witson_CMS_CCTV_live_6_remote_sites_33_cameras_total_Night_Mode.webm',
@@ -24,19 +40,11 @@ const FEEDS: Feed[] = [
   },
   {
     id: 'spectators',
-    name: 'SPECTATOR VIEW',
+    name: 'SPECTATOR VIEW (CCTV-04)',
     location: 'FOOTBALL STAND',
     source: 'Wikimedia Commons',
     url: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Spectators_during_a_football_match.webm',
     license: 'CC0',
-  },
-  {
-    id: 'stadium',
-    name: 'STADIUM WIDE',
-    location: 'VENUE OVERVIEW',
-    source: 'Wikimedia Commons',
-    url: 'https://upload.wikimedia.org/wikipedia/commons/9/9b/Video_fra_Vejle_Stadion.webm',
-    license: 'CC BY-SA 4.0',
   },
 ];
 

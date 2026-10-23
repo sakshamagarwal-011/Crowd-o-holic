@@ -151,6 +151,21 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
                 "Flow restrictions lifted for corridor.",
                 severity="low",
             )
+        elif req.node_id:
+            # Reopen all edges connected to node_id
+            for eid, e in graph.edges.items():
+                if e.from_node == req.node_id or e.to_node == req.node_id:
+                    if eid in sim_state.restricted_edges:
+                        del sim_state.restricted_edges[eid]
+                    sim_state.disabled_edges.discard(eid)
+                    e.status = "open"
+                    e.disabled = False
+            sim_state.push_timeline(
+                "route-change",
+                f"OPERATOR INTERVENTION: Node / Gate {req.node_id} Reopened",
+                f"Flow restrictions lifted for {req.node_id}.",
+                severity="low",
+            )
         else:
             # Reopen all corridors
             sim_state.restricted_edges.clear()

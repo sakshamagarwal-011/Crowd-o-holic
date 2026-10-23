@@ -264,6 +264,19 @@ function spawnAgents(scenario: Scenario, dtSec: number) {
   const t = state.simTimeMin;
   for (const grp of scenario.crowdGroups) {
     if (t < grp.arrivalStartMin || t > grp.arrivalEndMin) continue;
+
+    // Check if gate's outgoing edge or gate itself is disabled
+    const gateId = grp.entryGateId;
+    let gateBlocked = false;
+    for (const eid of state.disabledEdges) {
+      const e = state.edges[eid];
+      if (e && (e.from === gateId || e.to === gateId)) {
+        gateBlocked = true;
+        break;
+      }
+    }
+    if (gateBlocked) continue;
+
     const window = grp.arrivalEndMin - grp.arrivalStartMin;
     const ratePerMin = grp.size / Math.max(window, 1);
     const toSpawn = ratePerMin * (dtSec / 60) * state.speed;
@@ -381,7 +394,7 @@ function updateEdgeMetrics() {
     const e = state.edges[id];
     if (!e) continue;
     const cap = e.capacity;
-    e.density = Math.min(1, counts[id] / Math.max(cap * 0.85, 30));
+    e.density = Math.min(1, counts[id] / Math.max(cap * 0.35, 20));
     e.flow = Math.round(counts[id] * 2);
     if (e.status === 'emergency-closed') continue;
     if (e.status === 'closed') continue;
@@ -915,35 +928,60 @@ export function getLiveAgents(): SimAgent[] {
 }
 
 export function interveneSimulation(payload: {
-  action: 'restrict' | 'open_bypass' | 'divert' | 'reopen' | 'clear';
+  action: 'restrict' | 'open_bypass' | 'divert' | 'reopen' | 'clear' | 'close';
   edgeId?: string;
+  nodeId?: string;
   targetNodeId?: string;
   reason?: string;
 }) {
-  const { action, edgeId, targetNodeId, reason } = payload;
+  const { action, edgeId, nodeId, targetNodeId, reason } = payload;
   const target = targetNodeId || 'exit-se';
 
-  if (action === 'restrict') {
-    if (edgeId) {
-      state.disabledEdges.add(edgeId);
-      if (state.edges[edgeId]) {
-        state.edges[edgeId].status = 'congested';
+  const targetEdges: string[] = [];
+  if (edgeId) targetEdges.push(edgeId);
+  if (nodeId) {
+    for (const eid in state.edges) {
+      const e = state.edges[eid];
+      if (e.from === nodeId || e.to === nodeId) {
+        targetEdges.push(eid);
+      }
+    }
+  }
+
+  if (action === 'close' || action === 'restrict') {
+    for (const eid of targetEdges) {
+      state.disabledEdges.add(eid);
+      if (state.edges[eid]) {
+        state.edges[eid].status = action === 'close' ? 'closed' : 'congested';
+      }
+    }
+    // Divert agents on affected corridors towards relief exit
+    for (const a of state.agents) {
+      if (targetEdges.includes(a.edgeId)) {
+        const path = shortestPath(a.fromNodeId, target);
+        if (path && path.length >= 2) {
+          const e = edgeBetween(path[0], path[1]);
+          if (e) {
+            a.toNodeId = path[1];
+            a.edgeId = e.id;
+          }
+        }
       }
     }
   } else if (action === 'open_bypass') {
-    if (edgeId) {
-      state.disabledEdges.delete(edgeId);
-      if (state.edges[edgeId]) {
-        state.edges[edgeId].status = 'open';
+    for (const eid of targetEdges) {
+      state.disabledEdges.delete(eid);
+      if (state.edges[eid]) {
+        state.edges[eid].status = 'open';
       }
     }
   } else if (action === 'divert') {
-    if (edgeId) {
-      state.disabledEdges.add(edgeId);
+    for (const eid of targetEdges) {
+      state.disabledEdges.add(eid);
     }
     // Divert a portion of agents to the target exit
     for (const a of state.agents) {
-      if (a.edgeId === edgeId || a.id % 2 === 0) {
+      if (targetEdges.includes(a.edgeId) || a.id % 2 === 0) {
         const path = shortestPath(a.fromNodeId, target);
         if (path && path.length >= 2) {
           const e = edgeBetween(path[0], path[1]);
@@ -955,9 +993,18 @@ export function interveneSimulation(payload: {
       }
     }
   } else if (action === 'reopen' || action === 'clear') {
-    state.disabledEdges.clear();
-    for (const id in state.edges) {
-      state.edges[id].status = 'open';
+    if (targetEdges.length > 0) {
+      for (const eid of targetEdges) {
+        state.disabledEdges.delete(eid);
+        if (state.edges[eid]) {
+          state.edges[eid].status = 'open';
+        }
+      }
+    } else {
+      state.disabledEdges.clear();
+      for (const id in state.edges) {
+        state.edges[id].status = 'open';
+      }
     }
   }
 

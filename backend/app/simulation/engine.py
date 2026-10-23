@@ -21,7 +21,9 @@ from typing import Any, TYPE_CHECKING
 from app.simulation.state import SimulationRuntimeState
 from app.simulation.crowd import CrowdGroup, SimAgent
 from app.simulation.generator import generate_crowd_groups
-from app.simulation.movement import spawn_agents, move_agents, update_edge_metrics
+from app.simulation.movement import (
+    spawn_agents, move_agents, update_edge_metrics, seed_initial_crowd
+)
 from app.simulation.queues import compute_queue_states
 from app.metrics.calculator import calculate_metrics
 from app.risk.engine import compute_safety_state
@@ -104,6 +106,22 @@ class SimulationEngine:
             self._reset_state()
         self.state.status = "running"
         self.state.started_at = time.time()
+
+        # Seed initial realistic crowd when simulation starts running
+        if not self.state.agents:
+            self.state.agents = seed_initial_crowd(
+                self.state.groups,
+                self.graph,
+                self.state.next_agent_id,
+                self._rng,
+                self.state.path_cache,
+                target_count=min(500, max(120, self.state.scenario.get("crowdSize", 32000) // 50)),
+                restricted_edges=self.state.restricted_edges,
+                disabled_edges=self.state.disabled_edges,
+            )
+            self.state.total_entered = len(self.state.agents)
+            update_edge_metrics(self.state.agents, self.graph, self.state.edge_density_offsets)
+
         self.state.push_timeline("simulation", "Simulation started", "Live crowd simulation running.")
         log.info("Simulation started | id=%s", self.simulation_id)
         self._task = asyncio.create_task(self._run_loop())
