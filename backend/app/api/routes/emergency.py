@@ -99,9 +99,8 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
     elif req.action in ("divert", "restrict", "meter"):
         if edge_id and edge_id in graph.edges:
             sim_state.restricted_edges[edge_id] = 0.25  # heavy flow penalty (75% reduction)
-            edge = graph.get_edge(edge_id)
-            if edge:
-                edge.status = "congested"
+            if edge_id in sim_state.edge_density_offsets:
+                del sim_state.edge_density_offsets[edge_id]
         elif req.node_id and req.node_id in graph.nodes:
             closed_ids = graph.close_node_edges(req.node_id)
             for eid in closed_ids:
@@ -120,6 +119,8 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
             del sim_state.restricted_edges[edge_id]
         if edge_id and edge_id in sim_state.disabled_edges:
             sim_state.disabled_edges.remove(edge_id)
+        if edge_id and edge_id in sim_state.edge_density_offsets:
+            del sim_state.edge_density_offsets[edge_id]
         if edge_id:
             edge = graph.get_edge(edge_id)
             if edge:
@@ -176,10 +177,15 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
 
     if req.action in ("close", "block", "close_corridor", "divert", "restrict", "meter", "open_bypass"):
         # 1. Update crowd group destination or gate diversion if applicable
-        if req.action in ("divert", "open_bypass") and target_target == "gate-s":
-            for grp in sim_state.groups:
-                if grp.entry_gate_id == "gate-e":
-                    grp.entry_gate_id = "gate-s"
+        if req.action in ("divert", "open_bypass"):
+            if target_target == "gate-s":
+                for grp in sim_state.groups:
+                    if grp.entry_gate_id == "gate-e":
+                        grp.entry_gate_id = "gate-s"
+            elif target_target in ("exit-se", "exit-n", "exit-sw"):
+                for grp in sim_state.groups:
+                    if grp.entry_gate_id == "gate-e" and "mid" in grp.id:
+                        grp.destination_node_id = target_target
 
         # 2. Recompute routes considering both disabled and heavily restricted edges
         from app.routing.dynamic_router import recompute_routes
@@ -195,9 +201,11 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
         sim_state.route_changes = changes + sim_state.route_changes
 
         # 3. Actively migrate and reroute existing agents
-        from app.simulation.movement import _replan_agent
+        from app.simulation.movement import _replan_agent, update_edge_metrics
         group_map = {g.id: g for g in sim_state.groups}
-        edge_obj = graph.get_edge(edge_id) if edge_id else None
+        # Clear any artificial incident density offsets on diverted edge
+        if edge_id and edge_id in sim_state.edge_density_offsets:
+            del sim_state.edge_density_offsets[edge_id]
 
         for a in sim_state.agents:
             should_reroute = False
@@ -206,17 +214,19 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
             if edge_id and a.edge_id == edge_id:
                 should_reroute = True
             # Approaching junction or node connected to affected edge
-            elif edge_obj and (a.to_node_id in (edge_obj.from_node, edge_obj.to_node)):
+            elif edge_obj and (a.to_node_id in (edge_obj.from_node, edge_obj.to_node) or a.from_node_id in (edge_obj.from_node, edge_obj.to_node)):
                 should_reroute = True
             # Sector-based diversion
             elif req.action in ("divert", "open_bypass"):
-                if target_target == "exit-se" and (a.from_node_id in ("j-e", "gate-e", "j-se", "j-ne") or a.to_node_id in ("j-e", "j-se")):
+                if target_target == "exit-se" and (a.from_node_id in ("j-e", "gate-e", "j-se", "j-ne") or a.to_node_id in ("j-e", "j-se", "stage")):
                     should_reroute = True
-                elif target_target == "exit-n" and (a.from_node_id in ("j-n", "food-n", "j-nw") or a.to_node_id in ("j-n", "food-n")):
+                elif target_target == "exit-n" and (a.from_node_id in ("j-n", "food-n", "j-nw", "j-ne") or a.to_node_id in ("j-n", "food-n", "stage")):
                     should_reroute = True
-                elif target_target == "exit-sw" and (a.from_node_id in ("j-w", "gate-w", "j-sw") or a.to_node_id in ("j-w", "j-sw")):
+                elif target_target == "exit-sw" and (a.from_node_id in ("j-w", "gate-w", "j-sw") or a.to_node_id in ("j-w", "j-sw", "stage")):
                     should_reroute = True
-                elif req.action == "divert" and (a.id % 2 == 0):
+                elif target_target in ("gate-s", "food-s") and (a.from_node_id in ("j-e", "gate-e", "j-se") or a.to_node_id in ("j-e", "j-se")):
+                    should_reroute = True
+                elif req.action == "divert" and (a.id % 3 != 0):
                     should_reroute = True
 
             if should_reroute:
@@ -231,6 +241,8 @@ async def apply_intervention(simulation_id: str, req: InterveneRequest):
                     restricted_edges=sim_state.restricted_edges,
                     disabled_edges=sim_state.disabled_edges,
                 )
+
+        update_edge_metrics(sim_state.agents, graph, sim_state.edge_density_offsets)
 
     metrics, safety = engine.get_snapshot_data()
     from app.realtime.broadcaster import broadcast_snapshot

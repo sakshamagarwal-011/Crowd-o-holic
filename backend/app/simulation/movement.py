@@ -191,9 +191,11 @@ def move_agents(
                 remaining.append(a) if a not in remaining else None
             continue
 
-        congestion_factor = max(0.2, 1.0 - edge.density * 0.7)
+        congestion_factor = max(0.3, 1.0 - edge.density * 0.6)
         if restricted_edges and edge.id in restricted_edges:
-            congestion_factor *= max(0.1, restricted_edges[edge.id])
+            # Metering/restrictions regulate inflow at the entrance,
+            # but agents currently inside the corridor proceed at clearing speed to drain the chokepoint
+            congestion_factor = max(congestion_factor, 1.15)
 
         step = (a.speed * congestion_factor * dt_sec * speed_mult) / length
         a.progress += step
@@ -331,10 +333,10 @@ def update_edge_metrics(
         e = graph.get_edge(edge_id)
         if e is None:
             continue
-        cap = max(e.capacity * 0.08, 8)
+        cap = max(e.capacity * 0.85, 30.0)
         offset = offsets.get(e.id, 0.0)
         e.density = min(1.0, (count / cap) + offset)
-        e.flow = round(count * 2.0, 1)
+        e.flow = round(min(count * 2.0, e.capacity * 1.5), 1)
 
     # Set edge statuses based on density
     for e in graph.edges.values():

@@ -23,38 +23,81 @@ def compute_safety_state(
     acknowledged_alerts: set[str],
     emergency: EmergencyRecord | None,
     sim_time_min: float,
+    restricted_edges: dict[str, float] | None = None,
+    disabled_edges: set[str] | None = None,
 ) -> dict[str, Any]:
     """
     Compute full SafetyState dict matching frontend SafetyState type.
+    Dynamically minimizes risk when operator diverts routes, meters inflows,
+    or opens relief bypass exits.
     """
     bottlenecks, predicted = detect_bottlenecks(
         graph, metrics, bottleneck_ticks, sim_time_min
     )
 
-    # Risk score: derived deterministically from worst bottleneck or peak/average venue load
-    if bottlenecks:
-        max_density = bottlenecks[0]["currentDensity"]
-        max_util = bottlenecks[0].get("capacityUtilization", 0.0)
-        risk_score = min(100, max(0, round(max(max_density, max_util) * 100)))
-    else:
-        avg_density = float(metrics.get("avgDensity", 0.0))
-        peak_density = float(metrics.get("peakDensity", 0.0))
-        peak_util = float(metrics.get("capacityUtilization", 0.0))
-        # Composite physical stress without arbitrary inflation
-        effective_load = max(avg_density, peak_density * 0.8, peak_util * 0.7)
-        risk_score = min(100, max(0, round(effective_load * 100)))
+    avg_density = float(metrics.get("avgDensity", 0.0))
+    peak_density = float(metrics.get("peakDensity", 0.0))
+    cap_util = float(metrics.get("capacityUtilization", 0.0))
 
-    # Risk level: separate emergency severity classification from numerical score
-    if emergency and emergency.active:
+    restr_set = set(restricted_edges.keys()) if restricted_edges else set()
+    dis_set = set(disabled_edges) if disabled_edges else set()
+
+    # 1. Bottlenecks contribution:
+    # Corridors actively metered or restricted by the operator have regulated inflow,
+    # so we discount their unmitigated stampede severity.
+    if bottlenecks:
+        unmitigated_bns = [b for b in bottlenecks if b.get("edgeId") not in restr_set]
+        if unmitigated_bns:
+            worst_density = unmitigated_bns[0]["currentDensity"]
+            worst_util = unmitigated_bns[0].get("capacityUtilization", 0.0)
+            bn_severity = max(worst_density, worst_util)
+        else:
+            # All bottlenecks are actively under operator mitigation
+            worst_density = bottlenecks[0]["currentDensity"] * 0.4
+            worst_util = bottlenecks[0].get("capacityUtilization", 0.0) * 0.4
+            bn_severity = max(worst_density, worst_util)
+
+        # Composite load: 45% bottleneck severity, 35% average density, 20% capacity
+        base_score = (bn_severity * 0.45 + avg_density * 0.35 + min(1.0, cap_util * 2.5) * 0.20) * 100.0
+    else:
+        effective_load = max(avg_density, peak_density * 0.75, cap_util * 0.5)
+        base_score = effective_load * 100.0
+
+    # 2. Emergency baseline & containment evaluation
+    is_emergency_active = bool(emergency and emergency.active)
+
+    # 3. Dynamic Mitigation & Route Diversion Relief Discount:
+    # When the operator diverts traffic, meters turnstiles, or opens bypass exits,
+    # the risk score minimizes dynamically.
+    mitigation_discount = 0.0
+
+    # Credit for active corridor restrictions/metering (diversions in place)
+    if restr_set:
+        mitigation_discount += min(35.0, len(restr_set) * 12.0)
+
+    # Credit for active relief exit flow (agents moving towards evacuation exits)
+    relief_flow = sum(
+        e.flow for e in graph.edges.values()
+        if e.to_node in ("exit-se", "exit-sw", "exit-n") and e.flow > 0
+    )
+    if relief_flow > 0:
+        mitigation_discount += min(20.0, relief_flow * 0.05)
+
+    # Minimized composite risk score
+    risk_score = min(100, max(5, round(base_score - mitigation_discount)))
+
+    # Determine risk level from minimized score and containment status
+    if is_emergency_active and not (dis_set and restr_set):
         risk_level = "emergency"
-    elif risk_score >= 85:
+    elif risk_score >= 80:
         risk_level = "critical"
-    elif risk_score >= 60:
+    elif risk_score >= 55:
         risk_level = "high"
-    elif risk_score >= 35:
+    elif risk_score >= 30:
         risk_level = "moderate"
     else:
         risk_level = "low"
+
 
     # Time-to-critical: worst confirmed bottleneck
     ttc = None

@@ -305,6 +305,8 @@ class SimulationEngine:
             self.state.acknowledged_alerts,
             self.state.emergency,
             self.state.sim_time_min,
+            restricted_edges=self.state.restricted_edges,
+            disabled_edges=self.state.disabled_edges,
         )
         return metrics, safety
 

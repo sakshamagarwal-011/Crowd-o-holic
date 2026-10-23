@@ -381,13 +381,12 @@ function updateEdgeMetrics() {
     const e = state.edges[id];
     if (!e) continue;
     const cap = e.capacity;
-    e.density = Math.min(1, counts[id] / Math.max(cap * 0.08, 8));
+    e.density = Math.min(1, counts[id] / Math.max(cap * 0.85, 30));
     e.flow = Math.round(counts[id] * 2);
     if (e.status === 'emergency-closed') continue;
     if (e.status === 'closed') continue;
     if (e.density > 0.8) e.status = 'congested';
-    else if (e.density > 0.45) e.status = 'open';
-    else e.status = 'open';
+    else if (e.density <= 0.7) e.status = 'open';
   }
 }
 
@@ -466,12 +465,20 @@ function computeSafety(metrics: CrowdMetrics): SafetyState {
     .slice(0, 3)
     .map((b) => ({ ...b, id: `pred-${b.id}` }));
 
-  const maxDensity = bottlenecks[0]?.currentDensity ?? metrics.avgDensity;
-  const riskScore = Math.min(100, Math.round(maxDensity * 100));
-  const riskLevel: RiskLevel = state.emergency?.active ? 'emergency'
-    : riskScore >= 85 ? 'critical'
-    : riskScore >= 60 ? 'high'
-    : riskScore >= 35 ? 'moderate'
+  const reliefEdgesFlow = Object.values(state.edges)
+    .filter((e) => ['exit-se', 'exit-sw', 'exit-n'].includes(e.to) && e.flow > 0)
+    .reduce((acc, e) => acc + e.flow, 0);
+
+  const baseRisk = bottlenecks.length > 0
+    ? Math.round((bottlenecks[0].currentDensity * 0.45 + metrics.avgDensity * 0.35 + Math.min(1, metrics.capacityUtilization * 2.5) * 0.2) * 100)
+    : Math.round(metrics.avgDensity * 100);
+
+  const reliefDiscount = Math.min(35, Math.round(reliefEdgesFlow * 0.05 + (state.disabledEdges.size > 0 ? 20 : 0)));
+  const riskScore = Math.min(100, Math.max(5, baseRisk - reliefDiscount));
+  const riskLevel: RiskLevel = state.emergency?.active && state.disabledEdges.size === 0 ? 'emergency'
+    : riskScore >= 80 ? 'critical'
+    : riskScore >= 55 ? 'high'
+    : riskScore >= 30 ? 'moderate'
     : 'low';
 
   const ttc = bottlenecks.find((b) => b.timeToCriticalMin != null)?.timeToCriticalMin ?? null;
@@ -907,8 +914,62 @@ export function getLiveAgents(): SimAgent[] {
   return state.agents;
 }
 
-export function getEmergency(): EmergencyEvent | null {
-  return state.emergency;
+export function interveneSimulation(payload: {
+  action: 'restrict' | 'open_bypass' | 'divert' | 'reopen' | 'clear';
+  edgeId?: string;
+  targetNodeId?: string;
+  reason?: string;
+}) {
+  const { action, edgeId, targetNodeId, reason } = payload;
+  const target = targetNodeId || 'exit-se';
+
+  if (action === 'restrict') {
+    if (edgeId) {
+      state.disabledEdges.add(edgeId);
+      if (state.edges[edgeId]) {
+        state.edges[edgeId].status = 'congested';
+      }
+    }
+  } else if (action === 'open_bypass') {
+    if (edgeId) {
+      state.disabledEdges.delete(edgeId);
+      if (state.edges[edgeId]) {
+        state.edges[edgeId].status = 'open';
+      }
+    }
+  } else if (action === 'divert') {
+    if (edgeId) {
+      state.disabledEdges.add(edgeId);
+    }
+    // Divert a portion of agents to the target exit
+    for (const a of state.agents) {
+      if (a.edgeId === edgeId || a.id % 2 === 0) {
+        const path = shortestPath(a.fromNodeId, target);
+        if (path && path.length >= 2) {
+          const e = edgeBetween(path[0], path[1]);
+          if (e) {
+            a.toNodeId = path[1];
+            a.edgeId = e.id;
+          }
+        }
+      }
+    }
+  } else if (action === 'reopen' || action === 'clear') {
+    state.disabledEdges.clear();
+    for (const id in state.edges) {
+      state.edges[id].status = 'open';
+    }
+  }
+
+  // Record in timeline
+  state.timeline.unshift({
+    id: `tl-int-${Date.now()}`,
+    atMinute: state.simTimeMin,
+    kind: 'route-change',
+    title: `OPERATOR: ${action.toUpperCase()} ${edgeId ?? target}`,
+    summary: reason || `Intervention applied: ${action} towards ${target}`,
+    severity: action === 'restrict' ? 'high' : 'low',
+  });
 }
 
 // format helpers exported for UI

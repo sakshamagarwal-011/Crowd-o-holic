@@ -9,6 +9,7 @@ import {
   tick, resetSimulation, startSimulation, pauseSimulation,
   resumeSimulation, setSpeed, triggerEmergency, clearEmergency,
   interpretScenarioText, acknowledgeAlert, getLiveEdges, getLiveAgents,
+  interveneSimulation,
 } from '@/services/mockEngine';
 import type { VenueEdge, SimAgent } from '@/types';
 import {
@@ -334,6 +335,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
       }
     }
     // Local / fallback state handling
+    interveneSimulation(payload);
     if (payload.action === 'restrict' && payload.edgeId) {
       setActiveRestrictions((prev) => Array.from(new Set([...prev, payload.edgeId!])));
     } else if (payload.action === 'reopen' || payload.action === 'clear') {
